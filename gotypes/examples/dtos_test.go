@@ -25,3 +25,13 @@ func TestExample2(t *testing.T) {
 
 	gozod.Generate(mapper, "example_2.ts")
 }
+
+func TestExample3(t *testing.T) {
+	mapper := gozod.NewMapper()
+
+	mapper.ResolveAll(
+		reflective.TypeFor[Example3](),
+	)
+
+	gozod.Generate(mapper, "example_3.ts")
+}

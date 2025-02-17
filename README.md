@@ -6,7 +6,7 @@ that you can run and configure by invoking functions.
 
 Here is a basic example consider these DTO structs:
 
-~~~ go
+~~~go
 // Example1 is the result type for some call
 type Example1 struct {
 	// Message is the message the server produced for the request
@@ -24,9 +24,10 @@ type ChildThing1 struct {
 }
 ~~~
 
-Now running tsgen like so:
+Now running goats from a main function in your code base. Configuring it in 
+a typesafe way using code:
 
-~~~ golang
+~~~golang
 import (
     "github.com/softwaretechnik-berlin/goats/gotypes/goinsp/reflective"
     "github.com/softwaretechnik-berlin/goats/gotypes/gozod"
@@ -34,16 +35,16 @@ import (
 
 mapper := gozod.NewMapper()
 
-mapper.ResolveAll(
-    reflective.TypeFor[Example1](), 
+mapper.ResolveAll(  // ResolveAll will automatically resolve the `ChildThing1` by walking the dependency tree.
+    reflective.TypeFor[Example1](),  
 )
 
 gozod.Generate(mapper, "basic_example.ts")
 ~~~
 
-This will generate the following file with types that correspond to what it is serialised to.
+This will generate the following file with types that correspond to what it is serialised to. 
 
-~~~ typescript
+~~~typescript
 import { z } from "zod";
 
 /**
@@ -75,7 +76,7 @@ export type Example1 = z.infer<typeof Example1>;
 
 tsgen also takes `json` tags into account, so this slightly modified example:
 
-~~~ go
+~~~go
 // Example2 is the result type for some call
 type Example2 struct {
 	// Message is the message the server produced for the request
@@ -95,7 +96,7 @@ type ChildThing2 struct {
 
 will yield the following zod schema definition:
 
-~~~ typescript
+~~~typescript
 import { z } from "zod";
 
 /**
@@ -121,4 +122,16 @@ export const Example2 = z.object({
     items: z.array(ChildThing2).nullable().transform(a => a ?? []),
 });
 export type Example2 = z.infer<typeof Example2>;
+~~~
+
+## Using Maps
+
+Maps get mapped to the TypeScript record type. 
+
+~~~go
+// Example3 a struct containing a map
+type Example3 struct {
+	// Elements
+	Elements map[string]int
+}
 ~~~

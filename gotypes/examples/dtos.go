@@ -31,3 +31,9 @@ type ChildThing2 struct {
 	// Count multiple things.
 	Count int `json:"count"`
 }
+
+// Example3 a struct containing a map
+type Example3 struct {
+	// Elements
+	Elements map[string]int
+}
