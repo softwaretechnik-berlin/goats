@@ -126,7 +126,7 @@ export type Example2 = z.infer<typeof Example2>;
 
 ## Using Maps
 
-Maps get mapped to the TypeScript record type. 
+Maps get mapped to the TypeScript record type: 
 
 ~~~go
 // Example3 a struct containing a map
@@ -134,4 +134,23 @@ type Example3 struct {
 	// Elements
 	Elements map[string]int
 }
+~~~
+
+This will yield the following zod type:
+
+~~~typescript
+import {z} from "zod";
+
+/**
+ * Example3 corresponds to Go type examples.Example3 (in package "github.com/softwaretechnik-berlin/goats/gotypes/examples").
+ * The comment on the original Go type follows.
+ *
+ * Example3 a struct containing a map
+ */
+export const Example3 = z.object({
+    Elements: z.record(z.string(), z.number().int()).nullable().transform(r => r ?? {})
+});
+
+export type Example3 = z.infer<typeof Example3>;
+
 ~~~
