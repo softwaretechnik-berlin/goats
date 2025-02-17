@@ -41,6 +41,10 @@ func (t typeAdaptor) NumField() int {
 	return t.reflected.NumField()
 }
 
+func (t typeAdaptor) Key() goinsp.Type {
+	return typeAdaptor{t.reflected.Key()}
+}
+
 func (t typeAdaptor) Elem() goinsp.Type {
 	return typeAdaptor{t.reflected.Elem()}
 }

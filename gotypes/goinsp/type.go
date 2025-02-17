@@ -18,6 +18,7 @@ type reflectGenericallyMeaningfulInterface[TypeName ~string, ImportPath ~string,
 // reflectTypeInterface captures the commonalities between this package's Type and reflect.Type.
 type reflectTypeInterface[TypeName ~string, ImportPath ~string, Length constraints.Integer, StructField reflectStructFieldInterface, Type any] interface {
 	reflectGenericallyMeaningfulInterface[TypeName, ImportPath, Length]
+	Key() Type
 	Elem() Type
 	Field(i int) StructField
 	Implements(u Type) bool

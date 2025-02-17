@@ -139,6 +139,18 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 		return zod.Array(resolver.Resolve(t.Elem())).Length(t.Len())
 	case reflect.Interface:
 		return zod.Any()
+	case reflect.Map:
+		schema := zod.Record(resolver.Resolve(t.Key()), resolver.Resolve(t.Elem()))
+		// Nil maps are marshalled to JSON null
+		// TODO make it possible to configure things such that we assert that we don't emit nil values
+		if true {
+			schema = schema.Nullable()
+			// TODO make it possible to opt out of the homogenizing transformation.
+			if true {
+				schema = schema.Transformf(`r => r ?? {}`)
+			}
+		}
+		return schema
 	case reflect.Pointer:
 		return zod.EnsureNullable(resolver.Resolve(t.Elem()))
 	case reflect.Slice:

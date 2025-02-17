@@ -235,6 +235,30 @@ func TestGenerateForSliceTypes(t *testing.T) {
 	)
 }
 
+func TestGenerateForMapTypes(t *testing.T) {
+	// Go encodes nil maps to JSON null and empty non-nil maps slices to empty JSON objects.
+	// So in general, the most accurate representation for of the type of a JSON-marshalled map is a nullable type.
+	// However just as we can usually treat a nil map in Go the same as an empty slice, on the JavaScript/TypeScript
+	// side we usually want to treat a null as semantically equivalent to an empty object. So by default, map
+	// schemas will accept null but transform it into an empty value.
+	//
+	// TODO Untransformed nullable types that preserve the null vs. empty distinction can be enabled with
+	// `WithNullableSlices()`.
+	//
+	// TODO Finally, if you're willing to assert that you will always populate these types with a non-nil value, you can
+	// use `WithNonNullSlices()` to suppress the nullability completely and reject null values.
+	assertSimpleSchemaFor[map[string]string](t, z,
+		`z.record(z.string(), z.string()).nullable().transform(r => r ?? {})`,
+		examples[map[string]string]{
+			simpleExample[map[string]string](nil, `null`),
+			simpleExample(map[string]string{}, `{}`),
+			simpleExample(map[string]string{"foo": "abc"}, `{"foo":"abc"}`),
+			simpleExample(map[string]string{"foo": "abc", "bar": "def"}, `{"bar":"def","foo":"abc"}`),
+		},
+		rejects{`undefined`, `"foo"`, `[]`, `[0]`, `{"foo":0}`},
+	)
+}
+
 func TestGenerateForPointerTypes(t *testing.T) {
 	// Pointer types are nullable, because they include the nil value, which becomes null in JSON.
 	// TODO should we have a mechanism to make it possible to declare away the nullability of pointers?

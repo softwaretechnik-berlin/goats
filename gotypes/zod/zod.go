@@ -132,6 +132,10 @@ func Object(shape ...ShapeProperty) ZodObject {
 	return zodObject{zTypeFunc("object", shapeTypeScript(shape)), shape}
 }
 
+func Record(keySchema, valueType ZodType) ZodType {
+	return zodArray{zTypeFunc("record", keySchema.TypeScript(), valueType.TypeScript())}
+}
+
 func String() ZodString {
 	return zodString{zTypeFunc("string")}
 }

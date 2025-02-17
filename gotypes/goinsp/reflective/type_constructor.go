@@ -68,10 +68,12 @@ func newGenericType(t typeAdaptor) goinsp.GenType {
 		0,
 	}
 	switch gen.kind {
-	case reflect.Slice:
-		// nothing
 	case reflect.Array:
 		gen.len = t.Len()
+	case reflect.Map:
+		// nothing to capture
+	case reflect.Slice:
+		// nothing to capture
 	case reflect.Struct:
 		gen.numField = t.NumField()
 	default:
