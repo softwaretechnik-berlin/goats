@@ -115,6 +115,11 @@ func EnsureNullable(t ZodType) ZodType {
 	return t.Nullable()
 }
 
+// Enum type with the given permissible values
+func Enum(values ...string) ZodType {
+	return zTypeFunc("enum", ts.Array(util.Map(values, ts.StringLiteral)...))
+}
+
 // StripNullable strips away any known nullable wrappers and returns a bool indicating whether nullability was stripped away.
 func StripNullable(t ZodType) (ZodType, bool) {
 	if t, isNullable := t.(zodNullable); isNullable {
