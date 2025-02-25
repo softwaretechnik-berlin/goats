@@ -303,7 +303,7 @@ func SupportingDeclarations(mapper goToZodMapper) ts.Source {
 		group := func(pkg goinsp.ImportPath) uint {
 			if strings.ContainsRune(string(pkg), '.') {
 				return 1
-			}
+			} // privilege standard library types
 			return 0
 		}
 		if r := cmp.Compare(group(a), group(b)); r != 0 {
