@@ -141,7 +141,6 @@ func (l loader) collectTypeInfo(pkg *packages.Package) map[goinsp.TypeName]typeI
 
 					info.methods[decl.Name.Name] = functionDeclaration{decl, pkg.Fset.Position(decl.Pos())}
 					typeInfos[receiverName] = info
-					fmt.Println("Receiver", receiver, "method", decl.Name.Name)
 				}
 			default:
 				panic(decl)
