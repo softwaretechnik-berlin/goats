@@ -1,11 +1,16 @@
 package gozod
 
 import (
-	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 func capitalize(s string) string {
-	return strings.ToUpper(s[0:1]) + s[1:]
+	if len(s) == 0 {
+		return s
+	}
+	firstRune, n := utf8.DecodeRuneInString(s)
+	return string([]rune{unicode.ToUpper(firstRune)}) + s[n:]
 }
 
 func collectSlice[T any](cap int, element func(i int) (T, bool)) []T {

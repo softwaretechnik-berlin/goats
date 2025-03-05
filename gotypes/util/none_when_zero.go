@@ -1,18 +1,16 @@
 package util
 
 import (
-	"database/sql"
-	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 )
 
 // NoneWhenZero explicitly signals that its value might be https://go.dev/ref/spec#The_zero_value for that type.
 //
-// E.g., if we declare `x BusinessDistrictUUID`, we typically mean that `x` always has a valid id, even though it's
-// technically possible for me to give it the zero value, which is not a valid ID. If we intend for this value to
-// potentially be empty, we can make this explicit by declaring `x NoneWhenZero[BusinessDistrictUUID]`. This signals to
-// others that this value could be empty, and gives the additional behaviour described below.
+// E.g., if we declare `userID UUID`, we typically mean that `userID` always has a valid id, even though it's
+// technically possible for me to give it the zero value UUID, which doesn't actually identify a user.
+// If we intend for this value to potentially be empty, we can make this explicit by declaring `userID NoneWhenZero[UUID]`.
+// This signals to others that this value could be empty, and gives the additional behaviour described below.
 //
 // NoneWhenZero is equipped with utility methods for working with the value.
 //
@@ -24,7 +22,6 @@ type NoneWhenZero[A comparable] struct {
 	V A `tsgen:",value,nullable"`
 }
 
-var _ driver.Valuer = (*NoneWhenZero[any])(nil)
 var _ json.Marshaler = (*NoneWhenZero[any])(nil)
 var _ json.Unmarshaler = (*NoneWhenZero[any])(nil)
 
@@ -87,35 +84,6 @@ func (n NoneWhenZero[A]) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return json.Marshal(n.V)
-}
-
-// V implements driver.Valuer
-func (n NoneWhenZero[A]) Value() (value driver.Value, err error) {
-	if n.IsNone() {
-		return nil, nil
-	}
-	value = n.V
-	for {
-		valuer, ok := value.(driver.Valuer)
-		if !ok {
-			break
-		}
-		value, err = valuer.Value()
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
-// Scan implements sql.Scanner
-func (n *NoneWhenZero[A]) Scan(src any) error {
-	var sqlNull sql.Null[A]
-	err := sqlNull.Scan(src)
-	if err == nil {
-		n.V = sqlNull.V
-	}
-	return err
 }
 
 // MarshalJSON implements json.Unmarshaler, unmarshalling the representation given by MarshalJSON.

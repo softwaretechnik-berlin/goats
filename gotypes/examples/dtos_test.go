@@ -1,16 +1,16 @@
 package examples
 
 import (
-	"github.com/softwaretechnik-berlin/goats/gotypes/goinsp/reflective"
-	"github.com/softwaretechnik-berlin/goats/gotypes/gozod"
 	"testing"
+
+	"github.com/softwaretechnik-berlin/goats/gotypes/gozod"
 )
 
 func TestExample1(t *testing.T) {
 	mapper := gozod.NewMapper()
 
 	mapper.ResolveAll(
-		reflective.TypeFor[Example1](),
+		gozod.RefFor[Example1](),
 	)
 
 	gozod.Generate(mapper, "example_1.ts")
@@ -20,7 +20,7 @@ func TestExample2(t *testing.T) {
 	mapper := gozod.NewMapper()
 
 	mapper.ResolveAll(
-		reflective.TypeFor[Example2](),
+		gozod.RefFor[Example2](),
 	)
 
 	gozod.Generate(mapper, "example_2.ts")
@@ -30,7 +30,7 @@ func TestExample3(t *testing.T) {
 	mapper := gozod.NewMapper()
 
 	mapper.ResolveAll(
-		reflective.TypeFor[Example3](),
+		gozod.RefFor[Example3](),
 	)
 
 	gozod.Generate(mapper, "example_3.ts")

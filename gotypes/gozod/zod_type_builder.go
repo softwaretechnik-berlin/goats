@@ -18,57 +18,88 @@ import (
 	"github.com/softwaretechnik-berlin/goats/gotypes/zod"
 )
 
+// Ref represents a Go type reference for the purpose of JSON serialization.
+type Ref struct {
+	t         goinsp.Type
+	omitempty bool
+	// TODO test and implement omitzero
+	// omitzero bool
+}
+
+func PlainRef(t goinsp.Type) Ref {
+	return Ref{t: t}
+}
+
+func RefFor[T any]() Ref {
+	return PlainRef(reflective.TypeFor[T]())
+}
+
+func (r Ref) String() string {
+	s := r.t.String()
+	if r.omitempty {
+		s += " (with the JSON omitempty flag)"
+	}
+	return s
+}
+
+func (r Ref) keyRef() Ref  { return PlainRef(r.t.Key()) }
+func (r Ref) elemRef() Ref { return PlainRef(r.t.Elem()) }
+
+func (r Ref) distributeFlagsTo(types []goinsp.Type) []Ref {
+	return util.Map(types, func(t goinsp.Type) Ref { return Ref{t, r.omitempty} })
+}
+
+type goToZodMapper = mapper[Ref, zod.ZodType, ts.Identifier, zod.SchemaAndTypeDeclaration]
+
+func NewMapper(options ...Option) goToZodMapper {
+	return newMapper(newZodTypeBuilder(newConfig(options...)))
+}
+
 type zodTypeBuilder struct {
 	config
 }
+
+var _ builder[Ref, zod.ZodType, zod.SchemaAndTypeDeclaration] = zodTypeBuilder{}
 
 func newZodTypeBuilder(config config) zodTypeBuilder {
 	return zodTypeBuilder{config}
 }
 
-type goToZodMapper = mapper[goinsp.Type, zod.ZodType, ts.Identifier, zod.SchemaAndTypeDeclaration]
-
-func NewMapper(options ...Option) goToZodMapper {
-	return newMapper[goinsp.Type, zod.ZodType, ts.Identifier, zod.SchemaAndTypeDeclaration](newZodTypeBuilder(newConfig(options...)))
-}
-
-func NewMapperWithSupport(options ...Option) goToZodMapper {
-	return newMapper[goinsp.Type, zod.ZodType, ts.Identifier, zod.SchemaAndTypeDeclaration](newZodTypeBuilder(newConfig(options...)))
-}
-
-var _ builder[goinsp.Type, zod.ZodType, zod.SchemaAndTypeDeclaration] = zodTypeBuilder{}
-
-func (b zodTypeBuilder) Build(t goinsp.Type, resolver Resolver[goinsp.Type, zod.ZodType]) (schema zod.ZodType, declaration zod.SchemaAndTypeDeclaration, hasDeclaration bool) {
-	schema = b.buildRawSchema(t, resolver)
-	if transform, ok := lookupConfig(b.transforms, t); ok {
+func (b zodTypeBuilder) Build(ref Ref, resolver Resolver[Ref, zod.ZodType]) (schema zod.ZodType, declaration zod.SchemaAndTypeDeclaration, hasDeclaration bool) {
+	schema = b.buildRawSchema(ref, resolver)
+	if transform, ok := lookupConfig(b.transforms, ref.t); ok {
 		schema = schema.Transform(transform(resolver))
 	}
 	schemaBeforeTemplating := schema
-	if template, ok := lookupConfig(b.templates, t); ok {
+	if template, ok := lookupConfig(b.templates, ref.t); ok {
 		schema = applyTemplateTransform(schema, template)
 	}
-	name, ok := b.name(t)
+	name, ok := b.name(ref)
 	if !ok {
 		return
 	}
-	if b.shouldBrand(t, schemaBeforeTemplating) {
+	if b.shouldBrand(ref.t, schemaBeforeTemplating) {
 		schema = schema.Brand(string(name))
 	}
-	docComment := fmt.Sprintf("%s corresponds to Go type %s (in package %#v).\n", name, t, t.PkgPath())
-	if goComment := b.commentsLoader.Load(t); goComment != "" {
+	docComment := fmt.Sprintf("%s corresponds to Go type %s (in package %#v).\n", name, ref, ref.t.PkgPath())
+	if goComment := b.commentsLoader.Load(ref.t); goComment != "" {
 		docComment += "The comment on the original Go type follows.\n\n" + goComment
 	}
 	return schema.DeclaredAs(name), zod.NewSchemaAndTypeDeclaration(docComment, name, schema), true
 }
 
-func (b zodTypeBuilder) name(t goinsp.Type) (ts.Identifier, bool) {
-	if name, ok := lookupConfig(b.names, t); ok {
-		return name, true
-	}
-	if _, unnamed := lookupConfig(b.unnamedTypes, t); unnamed || t.PkgPath() == "" {
+func (b zodTypeBuilder) name(ref Ref) (ts.Identifier, bool) {
+	if ref.omitempty {
+		// TODO handle names for omitempty refs that have a different representation from their plain representation
 		return "", false
 	}
-	return ts.Identifier(t.Name().String()), true
+	if name, ok := lookupConfig(b.names, ref.t); ok {
+		return name, true
+	}
+	if _, unnamed := lookupConfig(b.unnamedTypes, ref.t); unnamed || ref.t.PkgPath() == "" {
+		return "", false
+	}
+	return ts.Identifier(ref.t.Name().String()), true
 }
 
 func (b zodTypeBuilder) shouldBrand(t goinsp.Type, schema zod.ZodType) bool {
@@ -100,17 +131,17 @@ func (b zodTypeBuilder) shouldBrand(t goinsp.Type, schema zod.ZodType) bool {
 	//return !isZodObject
 }
 
-func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.Type, zod.ZodType]) zod.ZodType {
-	if schema, ok := lookupConfig(b.schemas, t); ok {
+func (b zodTypeBuilder) buildRawSchema(ref Ref, resolver Resolver[Ref, zod.ZodType]) zod.ZodType {
+	if schema, ok := lookupConfig(b.schemas, ref.t); ok {
 		return schema(resolver)
 	}
-	if types, ok := lookupConfig(b.undiscriminatedUnions, t); ok {
-		return zod.Union(mapSlice(types, resolver.Resolve)...)
+	if types, ok := lookupConfig(b.undiscriminatedUnions, ref.t); ok {
+		return zod.Union(mapSlice(ref.distributeFlagsTo(types), resolver.Resolve)...)
 	}
-	if union, ok := lookupConfig(b.discriminatedUnions, t); ok {
-		return zod.DiscriminatedUnion(union.DiscriminatorProperty, mapSlice(union.Types, resolver.Resolve)...)
+	if union, ok := lookupConfig(b.discriminatedUnions, ref.t); ok {
+		return zod.DiscriminatedUnion(union.DiscriminatorProperty, mapSlice(ref.distributeFlagsTo(union.Types), resolver.Resolve)...)
 	}
-	if _, ok := lookupConfig(b.templates, t); !ok && t.Implements(reflective.TypeFor[encoding.TextMarshaler]()) {
+	if _, ok := lookupConfig(b.templates, ref.t); !ok && ref.t.Implements(reflective.TypeFor[encoding.TextMarshaler]()) {
 		var schema zod.ZodType = zod.String()
 		//for _, s := range strings.Split(b.commentsLoader.LoadMethod(t, "MarshalText"), "\n") {
 		//	s = strings.TrimSpace(s)
@@ -126,8 +157,9 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 		//}
 		return schema
 	}
-	switch t.Kind() {
+	switch ref.t.Kind() {
 	case reflect.Bool:
+		// TODO with some configurations we might want something like: if t.omitempty { return zod.Literal(true) }
 		return zod.Boolean()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return zod.Number().Int()
@@ -136,15 +168,16 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 	case reflect.Float32, reflect.Float64:
 		return zod.Number()
 	case reflect.Array:
-		return zod.Array(resolver.Resolve(t.Elem())).Length(t.Len())
+		return zod.Array(resolver.Resolve(ref.elemRef())).Length(ref.t.Len())
 	case reflect.Interface:
+		// TODO also nilable, which matter in optional context; needs tests
 		return zod.Any()
 	case reflect.Map:
-		schema := zod.Record(resolver.Resolve(t.Key()), resolver.Resolve(t.Elem()))
+		schema := zod.Record(resolver.Resolve(ref.keyRef()), resolver.Resolve(ref.elemRef()))
 		// Nil maps are marshalled to JSON null
 		// TODO make it possible to configure things such that we assert that we don't emit nil values
 		if true {
-			schema = schema.Nullable()
+			schema = schemaForNilableType(ref, schema)
 			// TODO make it possible to opt out of the homogenizing transformation.
 			if true {
 				schema = schema.Transformf(`r => r ?? {}`)
@@ -152,20 +185,20 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 		}
 		return schema
 	case reflect.Pointer:
-		return zod.EnsureNullable(resolver.Resolve(t.Elem()))
+		return schemaForNilableType(ref, resolver.Resolve(ref.elemRef()))
 	case reflect.Slice:
 		// Go encodes non-nil byte slices as strings using base64.
-		isBase64Encoded := t.Elem().Kind() == reflect.Uint8 && !t.Elem().Implements(reflective.TypeFor[json.Marshaler]()) && !t.Elem().Implements(reflective.TypeFor[encoding.TextMarshaler]())
+		isBase64Encoded := ref.t.Elem().Kind() == reflect.Uint8 && !ref.t.Elem().Implements(reflective.TypeFor[json.Marshaler]()) && !ref.t.Elem().Implements(reflective.TypeFor[encoding.TextMarshaler]())
 		var schema zod.ZodType
 		if isBase64Encoded {
 			schema = zod.String()
 		} else {
-			schema = zod.Array(resolver.Resolve(t.Elem()))
+			schema = zod.Array(resolver.Resolve(ref.elemRef()))
 		}
 		// Nil slices are marshalled to JSON null
 		// TODO make it possible to configure things such that we assert that we don't emit nil values
 		if true {
-			schema = schema.Nullable()
+			schema = schemaForNilableType(ref, schema)
 			// TODO make it possible to opt out of the homogenizing transformation.
 			if true {
 				if isBase64Encoded {
@@ -180,8 +213,8 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 		return zod.String()
 	case reflect.Struct:
 
-		for i := range t.NumField() {
-			field := t.Field(i)
+		for i := range ref.t.NumField() {
+			field := ref.t.Field(i)
 			tsgenTag := field.Tag.Get("gotypes")
 			if tagHasFlag(tsgenTag, "value") {
 				return b.resolveFieldSchema(field.Type(), field.Tag.Get("json"), tsgenTag, resolver)
@@ -190,19 +223,20 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 
 		var schema util.Optional[zod.ZodObject]
 		var properties []zod.ShapeProperty
-		if discriminator, ok := lookupConfig(b.discriminators, t); ok {
+		if discriminator, ok := lookupConfig(b.discriminators, ref.t); ok {
 			properties = append(properties, zod.ShapeProperty{discriminator.Property, zod.Literal(discriminator.Value)})
 		}
 
 		hasFields := false
 		embeddedJSONTypes := 0
 		var embeddedJSONType goinsp.Type
-		forEachTopLevelJSONFieldAndEmbeddedType(t,
+		forEachTopLevelJSONFieldAndEmbeddedType(ref.t,
 			func(name string, field goinsp.StructField, tag string) { hasFields = true },
 			func(t goinsp.Type) { embeddedJSONTypes++; embeddedJSONType = t },
 		)
 		if !hasFields && embeddedJSONTypes == 1 {
-			return resolver.Resolve(embeddedJSONType)
+			// TODO is this right? what if the embedded type has e.g. an omitempty tag? needs test
+			return resolver.Resolve(PlainRef(embeddedJSONType))
 		}
 		addPropertiesToSchema := func() {
 			if schema.HasValue {
@@ -211,7 +245,7 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 				schema = util.AsOptional(zod.Object(properties...))
 			}
 		}
-		forEachTopLevelJSONFieldAndEmbeddedType(t,
+		forEachTopLevelJSONFieldAndEmbeddedType(ref.t,
 			func(name string, field goinsp.StructField, tag string) {
 				// TODO embedded fields with name in json tag or embedded interfaces as object fields
 				// TODO embedded object fields inline, subject to complicated visibility rules
@@ -223,7 +257,8 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 					properties = nil
 				}
 				// TODO what if it's not a ZodObject?
-				resolved := resolver.Resolve(t)
+				// TODO is this right? what if the embedded type has e.g. an omitempty tag? needs test
+				resolved := resolver.Resolve(PlainRef(t))
 				embeddedObjectSchema, ok := resolved.(zod.ZodObject)
 				if !ok {
 					panic(fmt.Sprintf("%#v", resolved))
@@ -236,17 +271,13 @@ func (b zodTypeBuilder) buildRawSchema(t goinsp.Type, resolver Resolver[goinsp.T
 		}
 		return schema.MustGet()
 	default:
-		panic(t.Kind())
+		panic(ref.t.Kind())
 	}
 }
 
-func (b zodTypeBuilder) resolveFieldSchema(t goinsp.Type, jsonTag string, tsgenTag string, resolver Resolver[goinsp.Type, zod.ZodType]) zod.ZodType {
-	schema := resolver.Resolve(t)
-	//fromJsonString := false
-	//var schema zod.ZodType
-	//kindSupportsJSONStringFlag(t, jsonTag, fromJsonString)
-	//if schema = nil {
-	//}
+func (b zodTypeBuilder) resolveFieldSchema(t goinsp.Type, jsonTag string, tsgenTag string, resolver Resolver[Ref, zod.ZodType]) zod.ZodType {
+	ref := Ref{t, tagHasFlag(jsonTag, "omitempty")}
+	schema := resolver.Resolve(ref)
 	if tagHasFlag(jsonTag, "string") && kindSupportsJSONStringFlag(t) {
 		needsNullable := false
 		schema, needsNullable = zod.StripNullable(schema)
@@ -256,11 +287,9 @@ func (b zodTypeBuilder) resolveFieldSchema(t goinsp.Type, jsonTag string, tsgenT
 		}
 	}
 	if tagHasFlag(tsgenTag, "nullable") {
-		//if needsNullable {
 		schema = zod.EnsureNullable(schema)
 	}
-
-	if tagHasFlag(jsonTag, "omitempty") {
+	if ref.omitempty {
 		schema = schema.Optional()
 	}
 	return schema
@@ -286,14 +315,14 @@ func kindSupportsJSONStringFlag(t goinsp.Type) bool {
 }
 
 func SupportingDeclarations(mapper goToZodMapper) ts.Source {
-	type declaration = mappedValue[goinsp.Type, zod.ZodType, ts.Identifier, zod.SchemaAndTypeDeclaration]
+	type declaration = mappedValue[Ref, zod.ZodType, ts.Identifier, zod.SchemaAndTypeDeclaration]
 
 	declarationsByGoPackage := make(map[goinsp.ImportPath][]declaration)
 	simpleDeclarationsByGoPackage := make(map[goinsp.ImportPath][]declaration)
 	for _, decl := range mapper.declarations {
-		pkg := decl.in.PkgPath()
+		pkg := decl.in.t.PkgPath()
 		declarationsByGoPackage[pkg] = append(declarationsByGoPackage[pkg], decl)
-		if decl.in.WithoutTypeArguments() == decl.in {
+		if decl.in.t.WithoutTypeArguments() == decl.in.t {
 			simpleDeclarationsByGoPackage[pkg] = append(simpleDeclarationsByGoPackage[pkg], decl)
 		}
 	}
@@ -317,7 +346,7 @@ func SupportingDeclarations(mapper goToZodMapper) ts.Source {
 		return slices.IndexFunc(packagesToOutput, func(path goinsp.ImportPath) bool {
 			for _, decl := range declarations[path] {
 				for depName := range decl.declaration.info.dependencies {
-					depPath := mapper.declarations[depName].in.PkgPath()
+					depPath := mapper.declarations[depName].in.t.PkgPath()
 					if depPath != path && slices.Contains(packagesToOutput, depPath) {
 						return false
 					}
@@ -353,4 +382,12 @@ func SupportingDeclarations(mapper goToZodMapper) ts.Source {
 	return ts.StatementGroups(1, util.Map(declarations, func(d declaration) ts.Source {
 		return d.declaration.Value.TypeScript()
 	})...)
+}
+
+func schemaForNilableType(ref Ref, schema zod.ZodType) zod.ZodType {
+	if ref.omitempty {
+		// TODO under some configs we may want to anyway emit nullable
+		return schema
+	}
+	return zod.EnsureNullable(schema)
 }

@@ -3,12 +3,12 @@ package gozod_test
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/softwaretechnik-berlin/goats/gotypes/goinsp/parsing/comments"
-	"github.com/softwaretechnik-berlin/goats/gotypes/goinsp/reflective"
 	"github.com/softwaretechnik-berlin/goats/gotypes/gozod"
 	"github.com/softwaretechnik-berlin/goats/gotypes/ts"
 	"github.com/softwaretechnik-berlin/goats/gotypes/zod"
@@ -276,7 +276,7 @@ func TestGenerateForPointerTypes(t *testing.T) {
 	assertSimpleSchemaFor[**string](t, z,
 		`z.string().nullable()`,
 		examples[**string]{
-			{nil, []**string{ptr[*string](nil)}, `null`},
+			simpleExample(nil, `null`, ptr[*string](nil)),
 			simpleExample(ptr(ptr("")), `""`),
 			simpleExample(ptr(ptr("foo")), `"foo"`),
 		},
@@ -285,7 +285,7 @@ func TestGenerateForPointerTypes(t *testing.T) {
 	assertSimpleSchemaFor[*[]byte](t, z,
 		`z.string().nullable().transform(a => a ?? "").nullable()`,
 		examples[*[]byte]{
-			{nil, []*[]byte{ptr[[]byte](nil)}, `null`},
+			simpleExample(nil, `null`, ptr[[]byte](nil)),
 			simpleExample(ptr([]byte{}), `""`),
 			simpleExample(ptr([]byte{0}), `"AA=="`),
 			simpleExample(ptr([]byte{0, 1}), `"AAE="`),
@@ -297,7 +297,7 @@ func TestGenerateForPointerTypes(t *testing.T) {
 	assertSimpleSchemaFor[*[]string](t, z,
 		`z.array(z.string()).nullable().transform(a => a ?? []).nullable()`,
 		examples[*[]string]{
-			{nil, []*[]string{ptr[[]string](nil)}, `null`},
+			simpleExample(nil, `null`, ptr[[]string](nil)),
 			simpleExample(ptr([]string{}), `[]`),
 			simpleExample(ptr([]string{"foo"}), `["foo"]`),
 			simpleExample(ptr([]string{"foo", "bar"}), `["foo","bar"]`),
@@ -390,6 +390,23 @@ export type newTypeStruct = z.infer<typeof newTypeStruct>;
 		},
 		rejects{`null`, `undefined`, `{}`},
 	)
+
+	// pointers to named types become optional values of the named type
+	assertSchemaWithSupportFor[*newTypeS](t,
+		``, `newTypeS.nullable()`,
+		z, `/**
+ * newTypeS corresponds to Go type gozod_test.newTypeS (in package "github.com/softwaretechnik-berlin/goats/gotypes/gozod_test").
+ */
+export const newTypeS = z.string().brand("newTypeS");
+export type newTypeS = z.infer<typeof newTypeS>;
+`,
+		examples[*newTypeS]{
+			simpleExample[*newTypeS](nil, `null`),
+			simpleExample(ptr[newTypeS](""), `""`),
+			simpleExample(ptr[newTypeS]("foo"), `"foo"`),
+		},
+		rejects{`undefined`, `0`},
+	)
 }
 
 type (
@@ -398,6 +415,7 @@ type (
 	demoStruct    struct {
 		nonExported                string
 		Exported                   string
+		NamedTypePtr               *newTypeS
 		ExportedHyphenTag          notSerialized `json:"-"`
 		ExportedHyphenCommaTag     asUnderscore  `json:"-,"`
 		ThisWillBeRenamed          string        `json:"renamed"`
@@ -410,10 +428,12 @@ type (
 		SliceNonStr                []float64     `json:",string"`
 	}
 	omittablesStruct struct {
-		Omittable       string `json:",omitempty"`
-		Omittable2      string `json:"renamedOmittable,omitempty"`
-		OptionalBoolStr bool   `json:",string,omitempty"`
-		NullishBoolStr  *bool  `json:",string,omitempty"`
+		Omittable          string      `json:",omitempty"`
+		Omittable2         string      `json:"renamedOmittable,omitempty"`
+		OmittablePtr       *newTypeS   `json:",omitempty"`
+		OmittablePtrPtrPtr ***newTypeS `json:",omitempty"`
+		OptionalBoolStr    bool        `json:",string,omitempty"`
+		NullishBoolStr     *bool       `json:",string,omitempty"`
 	}
 )
 
@@ -427,10 +447,17 @@ export const asUnderscore = z.string().brand("asUnderscore");
 export type asUnderscore = z.infer<typeof asUnderscore>;
 
 /**
+ * newTypeS corresponds to Go type gozod_test.newTypeS (in package "github.com/softwaretechnik-berlin/goats/gotypes/gozod_test").
+ */
+export const newTypeS = z.string().brand("newTypeS");
+export type newTypeS = z.infer<typeof newTypeS>;
+
+/**
  * demoStruct corresponds to Go type gozod_test.demoStruct (in package "github.com/softwaretechnik-berlin/goats/gotypes/gozod_test").
  */
 export const demoStruct = z.object({
     Exported: z.string(),
+    NamedTypePtr: newTypeS.nullable(),
     "-": asUnderscore,
     renamed: z.string(),
     renamed2: z.string(),
@@ -444,57 +471,70 @@ export const demoStruct = z.object({
 export type demoStruct = z.infer<typeof demoStruct>;
 `,
 		examples[demoStruct]{
-			example[demoStruct]{
+			simpleExample(
 				demoStruct{
 					Exported:                   "A",
-					ExportedHyphenCommaTag:     "B",
-					ThisWillBeRenamed:          "C",
-					ThisWillBeRenamed2IMeanToo: "D",
-					StrStr:                     "E",
+					NamedTypePtr:               ptr[newTypeS]("B"),
+					ExportedHyphenCommaTag:     "C",
+					ThisWillBeRenamed:          "D",
+					ThisWillBeRenamed2IMeanToo: "E",
+					StrStr:                     "F",
 					IntStr:                     42,
 					FloatStr:                   1.23456789,
 					BoolStr:                    true,
 					NullableBoolStr:            ptr(true),
 					SliceNonStr:                []float64{1.5},
 				},
-				[]demoStruct{
-					{
-						nonExported:                "NOPE",
-						Exported:                   "A",
-						ExportedHyphenTag:          "NOPE",
-						ExportedHyphenCommaTag:     "B",
-						ThisWillBeRenamed:          "C",
-						ThisWillBeRenamed2IMeanToo: "D",
-						StrStr:                     "E",
-						IntStr:                     42,
-						FloatStr:                   1.23456789,
-						BoolStr:                    true,
-						NullableBoolStr:            ptr(true),
-						SliceNonStr:                []float64{1.5},
-					},
+				`{"Exported":"A","NamedTypePtr":"B","-":"C","renamed":"D","renamed2":"E","StrStr":"\"F\"","IntStr":"42","FloatStr":"1.23456789","BoolStr":"true","NullableBoolStr":"true","SliceNonStr":[1.5]}`,
+				demoStruct{
+					nonExported:                "NOPE",
+					Exported:                   "A",
+					NamedTypePtr:               ptr[newTypeS]("B"),
+					ExportedHyphenTag:          "NOPE",
+					ExportedHyphenCommaTag:     "C",
+					ThisWillBeRenamed:          "D",
+					ThisWillBeRenamed2IMeanToo: "E",
+					StrStr:                     "F",
+					IntStr:                     42,
+					FloatStr:                   1.23456789,
+					BoolStr:                    true,
+					NullableBoolStr:            ptr(true),
+					SliceNonStr:                []float64{1.5},
 				},
-				`{"Exported":"A","-":"B","renamed":"C","renamed2":"D","StrStr":"\"E\"","IntStr":"42","FloatStr":"1.23456789","BoolStr":"true","NullableBoolStr":"true","SliceNonStr":[1.5]}`,
-			},
+			),
 		},
 		rejects{`null`, `undefined`, `{}`},
 	)
 	assertSchemaWithSupportFor[omittablesStruct](t,
 		``, `omittablesStruct`,
 		z, `/**
+ * newTypeS corresponds to Go type gozod_test.newTypeS (in package "github.com/softwaretechnik-berlin/goats/gotypes/gozod_test").
+ */
+export const newTypeS = z.string().brand("newTypeS");
+export type newTypeS = z.infer<typeof newTypeS>;
+
+/**
  * omittablesStruct corresponds to Go type gozod_test.omittablesStruct (in package "github.com/softwaretechnik-berlin/goats/gotypes/gozod_test").
  */
 export const omittablesStruct = z.object({
     Omittable: z.string().optional(),
     renamedOmittable: z.string().optional(),
+    OmittablePtr: newTypeS.optional(),
+    OmittablePtrPtrPtr: newTypeS.nullable().optional(),
     OptionalBoolStr: z.string().transform(s => JSON.parse(s)).pipe(z.boolean()).optional(),
-    NullishBoolStr: z.string().transform(s => JSON.parse(s)).pipe(z.boolean()).nullable().optional(),
+    NullishBoolStr: z.string().transform(s => JSON.parse(s)).pipe(z.boolean()).optional(),
 });
 export type omittablesStruct = z.infer<typeof omittablesStruct>;
 `,
 		examples[omittablesStruct]{
-			simpleExample(omittablesStruct{}, `{}`),
+			exampleWithEquivalentJSONRepresentations(
+				jsonRepr(`{}`, omittablesStruct{}),
+				jsonRepr(`{"OmittablePtrPtrPtr":null}`, omittablesStruct{OmittablePtrPtrPtr: ptr(ptr[*newTypeS](nil))}, omittablesStruct{OmittablePtrPtrPtr: ptr[**newTypeS](nil)}),
+			),
 			simpleExample(omittablesStruct{Omittable: "A"}, `{"Omittable":"A"}`),
 			simpleExample(omittablesStruct{Omittable2: "B"}, `{"renamedOmittable":"B"}`),
+			simpleExample(omittablesStruct{OmittablePtr: ptr[newTypeS]("C")}, `{"OmittablePtr":"C"}`),
+			simpleExample(omittablesStruct{OmittablePtrPtrPtr: ptr(ptr(ptr[newTypeS]("D")))}, `{"OmittablePtrPtrPtr":"D"}`),
 			simpleExample(omittablesStruct{OptionalBoolStr: true}, `{"OptionalBoolStr":"true"}`),
 			simpleExample(omittablesStruct{NullishBoolStr: ptr(false)}, `{"NullishBoolStr":"false"}`),
 		},
@@ -619,7 +659,7 @@ func assertSimpleSchemaFor[T any](t *testing.T,
 	examples examples[T], rejects rejects,
 ) {
 	m := gozod.NewMapper(gozod.WithCommentsLoader(sharedCommentsLoader))
-	assertTypeScriptRepresentationOf(t, m.Resolve(reflective.TypeFor[T]()).Value, expectedImports, expectedCode)
+	assertTypeScriptRepresentationOf(t, m.Resolve(gozod.RefFor[T]()).Value, expectedImports, expectedCode)
 	assertTypeScript(t, gozod.SupportingDeclarations(m), "", "")
 
 	assertExamplesAndRejects(t, examples, rejects)
@@ -631,7 +671,7 @@ func assertSchemaWithSupportFor[T any](t *testing.T,
 	examples examples[T], rejects rejects,
 ) {
 	m := gozod.NewMapper(gozod.WithCommentsLoader(sharedCommentsLoader))
-	assertTypeScriptRepresentationOf(t, m.Resolve(reflective.TypeFor[T]()).Value, expectedResolutionImports, expectedResolutionCode)
+	assertTypeScriptRepresentationOf(t, m.Resolve(gozod.RefFor[T]()).Value, expectedResolutionImports, expectedResolutionCode)
 	assertTypeScript(t, gozod.SupportingDeclarations(m), expectedSupportImports, expectedSupportCode)
 
 	assertExamplesAndRejects(t, examples, rejects)
@@ -639,27 +679,25 @@ func assertSchemaWithSupportFor[T any](t *testing.T,
 
 func assertExamplesAndRejects[T any](t *testing.T, examples examples[T], rejects rejects) {
 	for _, e := range examples {
-		assertMarshalledJSON := func(value T) {
-			marshalled, err := json.Marshal(value)
-			if assert.NoError(t, err) {
-				assert.Equal(t, e.json, string(marshalled), `%v example: %#v should marshall to JSON %#v`, reflect.TypeFor[T](), value, e.json)
+		for jsonRepr, values := range e.jsonRepresentations {
+
+			var unmarshalled T
+			if assert.NoError(t, json.Unmarshal(([]byte)(jsonRepr), &unmarshalled)) {
+				assert.True(t, reflect.DeepEqual(e.primaryValue, unmarshalled), `%v example: JSON %#v should unmarshall to %#v but got %#v`, reflect.TypeFor[T](), jsonRepr, e.primaryValue, unmarshalled)
+			}
+
+			for _, value := range values {
+				marshalled, err := json.Marshal(value)
+				if assert.NoError(t, err) {
+					assert.Equal(t, jsonRepr, string(marshalled), `%v example: %#v should marshall to JSON %#v`, reflect.TypeFor[T](), value, jsonRepr)
+				}
 			}
 		}
-		assertMarshalledJSON(e.value)
-		for _, value := range e.identicallyMarshalled {
-			assertMarshalledJSON(value)
-		}
-
-		var unmarshalled T
-		if assert.NoError(t, json.Unmarshal(([]byte)(e.json), &unmarshalled)) {
-			assert.True(t, reflect.DeepEqual(e.value, unmarshalled), `%v example: JSON %#v should unmarshall to %#v but got %#v`, reflect.TypeFor[T](), e.json, e.value, unmarshalled)
-		}
-
-		// TODO check that TypeScript accepts the value's type
-		// TODO check that the schema accepts the value
-		// TODO check the schema's output value
-		// TODO check that the expected output value is accepted by inferred schema output type.
 	}
+	// TODO check that TypeScript accepts the value's type
+	// TODO check that the schema accepts the value
+	// TODO check the schema's output value
+	// TODO check that the expected output value is accepted by inferred schema output type.
 
 	for _, r := range rejects {
 		var unmarshalled T
@@ -672,20 +710,41 @@ func assertExamplesAndRejects[T any](t *testing.T, examples examples[T], rejects
 		}
 		// TODO check that TypeScript rejects the value's type
 		// TODO check that the schema rejects the value
+
 	}
 }
 
 type examples[T any] []example[T]
 type rejects []string
 
-type example[T any] struct {
-	value                 T
-	identicallyMarshalled []T
-	json                  string
+type example[V any] struct {
+	primaryValue        V
+	jsonRepresentations map[string][]V // JSON representations of this value, all of which are expected to unmarshal to the primary value; each representation has a list of values that are expected to marshal to the given representation.
 }
 
-func simpleExample[T any](value T, json string) example[T] {
-	return example[T]{value, nil, json}
+func simpleExample[V any](primaryValue V, jsonRepr string, identicallyMarshalled ...V) example[V] {
+	return example[V]{
+		primaryValue,
+		map[string][]V{jsonRepr: slices.Insert(identicallyMarshalled, 0, primaryValue)},
+	}
+}
+
+func exampleWithEquivalentJSONRepresentations[V any](primaryRepr jsonRepresentation[V], alternateRepresentations ...jsonRepresentation[V]) example[V] {
+	ex := example[V]{primaryRepr.values[0], make(map[string][]V, 1+len(alternateRepresentations))}
+	ex.jsonRepresentations[primaryRepr.json] = primaryRepr.values
+	for _, repr := range alternateRepresentations {
+		ex.jsonRepresentations[repr.json] = repr.values
+	}
+	return ex
+}
+
+type jsonRepresentation[T any] struct {
+	json   string // literal JSON string
+	values []T    // a non-empty list of values that are expected to marshal to the given JSON
+}
+
+func jsonRepr[T any](json string, value T, additionalValues ...T) jsonRepresentation[T] {
+	return jsonRepresentation[T]{json, slices.Insert(additionalValues, 0, value)}
 }
 
 func ptr[A any](value A) *A {

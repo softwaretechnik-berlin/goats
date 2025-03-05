@@ -14,12 +14,12 @@ import (
 type config struct {
 	names                 map[goinsp.GenType]ts.Identifier
 	unnamedTypes          map[goinsp.GenType]struct{}
-	schemas               map[goinsp.GenType]func(resolver Resolver[goinsp.Type, zod.ZodType]) zod.ZodType
+	schemas               map[goinsp.GenType]func(resolver Resolver[Ref, zod.ZodType]) zod.ZodType
 	templates             map[goinsp.GenType]string
 	undiscriminatedUnions map[goinsp.GenType][]goinsp.Type
 	discriminators        map[goinsp.GenType]JSONDiscriminator
 	discriminatedUnions   map[goinsp.GenType]JSONDiscriminatedUnion
-	transforms            map[goinsp.GenType]func(resolver Resolver[goinsp.Type, zod.ZodType]) ts.Source
+	transforms            map[goinsp.GenType]func(resolver Resolver[Ref, zod.ZodType]) ts.Source
 	commentsLoader        comments.Loader
 }
 
@@ -69,17 +69,17 @@ func WithUnnamedType(t goinsp.GenType) Option {
 	})
 }
 
-func WithResolvingSchema(t goinsp.GenType, schema func(resolver Resolver[goinsp.Type, zod.ZodType]) zod.ZodType) Option {
+func WithResolvingSchema(t goinsp.GenType, schema func(resolver Resolver[Ref, zod.ZodType]) zod.ZodType) Option {
 	return funcOption(func(c *config) {
 		if c.schemas == nil {
-			c.schemas = make(map[goinsp.GenType]func(resolver Resolver[goinsp.Type, zod.ZodType]) zod.ZodType)
+			c.schemas = make(map[goinsp.GenType]func(resolver Resolver[Ref, zod.ZodType]) zod.ZodType)
 		}
 		c.schemas[t] = schema
 	})
 }
 
 func WithSchema(t goinsp.GenType, schema zod.ZodType) Option {
-	return WithResolvingSchema(t, func(_ Resolver[goinsp.Type, zod.ZodType]) zod.ZodType { return schema })
+	return WithResolvingSchema(t, func(_ Resolver[Ref, zod.ZodType]) zod.ZodType { return schema })
 }
 
 func WithTemplate(t goinsp.GenType, template string) Option {
@@ -118,17 +118,17 @@ func WithDiscriminatedUnion(t goinsp.GenType, discriminatorProperty string, type
 	}
 }
 
-func WithResolvingTransform(t goinsp.GenType, expr func(resolver Resolver[goinsp.Type, zod.ZodType]) ts.Source) Option {
+func WithResolvingTransform(t goinsp.GenType, expr func(resolver Resolver[Ref, zod.ZodType]) ts.Source) Option {
 	return funcOption(func(c *config) {
 		if c.transforms == nil {
-			c.transforms = make(map[goinsp.GenType]func(resolver Resolver[goinsp.Type, zod.ZodType]) ts.Source)
+			c.transforms = make(map[goinsp.GenType]func(resolver Resolver[Ref, zod.ZodType]) ts.Source)
 		}
 		c.transforms[t] = expr
 	})
 }
 
 func WithTransform(t goinsp.GenType, expr ts.Source) Option {
-	return WithResolvingTransform(t, func(_ Resolver[goinsp.Type, zod.ZodType]) ts.Source { return expr })
+	return WithResolvingTransform(t, func(_ Resolver[Ref, zod.ZodType]) ts.Source { return expr })
 }
 
 func WithCommentsLoader(loader comments.Loader) Option {
@@ -156,7 +156,7 @@ func (o TypeOptions) Schema(schema zod.ZodType) TypeOptions {
 	return o.add(WithSchema(o.t, schema))
 }
 
-func (o TypeOptions) ResolvingSchema(schema func(resolver Resolver[goinsp.Type, zod.ZodType]) zod.ZodType) TypeOptions {
+func (o TypeOptions) ResolvingSchema(schema func(resolver Resolver[Ref, zod.ZodType]) zod.ZodType) TypeOptions {
 	return o.add(WithResolvingSchema(o.t, schema))
 }
 
@@ -172,7 +172,7 @@ func (o TypeOptions) Named(name string) TypeOptions {
 	return o.add(WithName(o.t, name))
 }
 
-func (o TypeOptions) ResolvingTransform(f func(resolver Resolver[goinsp.Type, zod.ZodType]) ts.Source) TypeOptions {
+func (o TypeOptions) ResolvingTransform(f func(resolver Resolver[Ref, zod.ZodType]) ts.Source) TypeOptions {
 	return o.add(WithResolvingTransform(o.t, f))
 }
 
@@ -181,12 +181,14 @@ func (o TypeOptions) Transform(f ts.Source) TypeOptions {
 }
 
 func (o TypeOptions) Transformf(format string, as ...any) TypeOptions {
-	return o.add(WithResolvingTransform(o.t, func(resolver Resolver[goinsp.Type, zod.ZodType]) ts.Source {
+	return o.add(WithResolvingTransform(o.t, func(resolver Resolver[Ref, zod.ZodType]) ts.Source {
 		return ts.Sourcef(format, util.Map(as, func(value any) ts.Source {
 			switch value := value.(type) {
 			case ts.Source:
 				return value
 			case goinsp.Type:
+				return resolver.Resolve(PlainRef(value)).TypeScript()
+			case Ref:
 				return resolver.Resolve(value).TypeScript()
 			default:
 				panic(value)

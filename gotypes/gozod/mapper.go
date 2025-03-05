@@ -36,7 +36,7 @@ func (m mapper[A, B, ID, Declaration]) Resolve(a A) withAccounting[B, ID] {
 		return decl.reference
 	}
 
-	r := newAccountingResolver[A, B, ID](m)
+	r := newAccountingResolver(m)
 	b, declaration, hasDeclaration := m.builder.Build(a, &r)
 	if !hasDeclaration {
 		return withAccounting[B, ID]{b, r.Observed}
